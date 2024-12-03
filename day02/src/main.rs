@@ -2,32 +2,74 @@ use std::fs::File;
 use std::io::BufReader;
 use std::io::prelude::*;
 
-fn level_is_safe(increasing: bool, previous: u32, current: u32) -> bool {
-    if increasing && current <= previous {return false;}
-    if !increasing && current >= previous {return false;}
-    if (increasing && (current - previous) > 3) || (!increasing && (previous - current) > 3) {return false;}
-    return true;
+fn compute_distances(levels: &Vec<i32>) -> Vec<i32>
+{
+    let mut distances = Vec::new();
+    let mut iter = levels.iter();
+    let mut prev_level = iter.next().expect("Should have at least one level");
+
+    for level in iter {
+        distances.push(level - prev_level);
+        prev_level = level;
+    }
+
+    return distances;
 }
 
-fn report_is_safe(line: &str, dampening: bool) -> bool {
-    let mut levels = line.split_ascii_whitespace().map(|s| s.parse::<u32>().expect("Element in report is not an integer")).peekable();
-    let mut previous_level = levels.next().unwrap();
-    let increasing = levels.peek().unwrap() > &previous_level;
-    let mut has_been_dampened = false;
-    for current_level in levels {
-        if dampening {
-            if !level_is_safe(increasing, previous_level, current_level) {
-                if !has_been_dampened {has_been_dampened = true;}
-                else {return false;}
-            } else {
-                previous_level = current_level;
-            }
+
+fn report_is_safe(levels: &Vec<i32>, dampening: bool) -> bool {
+    // Compute distances
+    let distances = compute_distances(&levels);
+
+    // Check if any of the distances are too high or too low
+    if let Some(index) = distances.iter().position(|d| *d == 0 || d.abs() > 3) {
+        if (!dampening) {
+            return false; // No dampening, report is fucked right away
+        }
+        
+        // Try to remove level on the left and see if it's safe
+        let mut new_list = levels.clone();
+        new_list.remove(index);
+        if (report_is_safe(&new_list, false)) {
+            return true;
         } else {
-            if !level_is_safe(increasing, previous_level, current_level) {return false;}
-            previous_level = current_level;
+            // Left level didn't fix the report, let's hope it's the right then...
+            new_list = levels.clone();
+            new_list.remove(index+1);
+            return report_is_safe(&new_list, false);
         }
     }
-    return true;
+
+    // Count positive increments
+    let num_increasing = distances.iter().filter(|d| **d > 0).count();
+
+    if num_increasing == distances.len() || num_increasing == 0 {
+        // If all distances are positive (i.e. all increments) or we have exactly 0 positive distances (i.e. all are negative/decrementing) then report is safe
+        return true;
+    } else if dampening && (num_increasing == (distances.len()-1) || num_increasing == 1){
+        // Only one of the reports is fucked, let's try and fix this
+        // Find the odd level
+        let index;
+        if (num_increasing == 1) {
+            index = distances.iter().position(|d| *d > 0).expect("We already checked there is exactly one positive distance");
+        } else {
+            index = distances.iter().position(|d| *d < 0).expect("We already checked there is exactly one negative distance");
+        }
+        // Try to remove level on the left and see if it's safe
+        let mut new_list = levels.clone();
+        new_list.remove(index);
+        if (report_is_safe(&new_list, false)) {
+            return true;
+        } else {
+            // Left level didn't fix the report, let's hope it's the right then...
+            new_list = levels.clone();
+            new_list.remove(index+1);
+            return report_is_safe(&new_list, false);
+        }
+    } else {
+        // It's fucked beyond repair
+        return false;
+    }
 }
 
 fn solve_puzzle(input: &str) -> std::io::Result<()>  {
@@ -42,10 +84,10 @@ fn solve_puzzle(input: &str) -> std::io::Result<()>  {
     
     // Parse line by line, check report is safe
     for line in buf_reader.lines() {
-        let line_str = line?;
-        if report_is_safe(line_str.as_str(), false) {safe_reports += 1;}
+        let levels = line?.as_str().split_ascii_whitespace().map(|s| s.parse::<i32>().expect("Element in report is not an integer")).collect();
+        if report_is_safe(&levels, false) {safe_reports += 1;}
         // *** Second half of the puzzle ***
-        if report_is_safe(line_str.as_str(), true) {safe_reports_dampened += 1;}
+        if report_is_safe(&levels, true) {safe_reports_dampened += 1;}
     }
 
     println!("\tSafe Reports: {}", safe_reports);
